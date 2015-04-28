@@ -1,24 +1,28 @@
-# On Trestles we will check versus your performance versus Intel MKL library's BLAS.
+##################################
+# Assuming you are using an Intel#
+# compiler stack, change MPICC 	 #
+# accordingly.					 #
+##################################
 
-#WARN = -Wall -Wextra -Wunused-variable -Wunused-parameter -Wunsafe-loop-optimizations
-OPTIMIZE = -O3 -xSSE2
-OPENMP = -openmp
+OPTIMIZE = -O3 -funroll-all-loops
 DEBUG = -g
-COFLAGS = $(DEBUG) $(WARN) $(OPTIMIZE) -lrt
+CFLAGS = $(DEBUG) $(OPTIMIZE) -lrt
 
-SCALAPACK = -L$(MKLROOT)/lib/intel64 -mkl -lmkl_blacs_intelmpi_lp64 -lmkl_scalapack_lp64
+###############################################
+# uncomment if you have BLAS installed		  #
+# set the env. var MKLROOT before using 'make'#
+###############################################
+#BLAS = -DBLAS
+#MKLLIBS = -L$(MKLROOT)/lib/intel64 -mkl -lmkl_intel_lp64
 
-MKLLIBS = -L$(MKLROOT)/lib/intel64 -mkl -lmkl_intel_lp64
-
-CC = icpc
 MPICC = mpiicpc
 
-TARGETS = trdqr 
+EXE = tdrqr 
 
-all:    $(TARGETS)
+all:    $(EXE)
 
-trdqr: main-comments.cpp utils.cpp
-	$(MPICC) $(COFLAGS) $(SCALAPACK) $(MKLLIBS) -o $@ $^
+tdrqr: main.cpp utils.cpp
+	$(MPICC) $(CFLAGS) $(BLAS) $(MKLLIBS) -o $@ $^
 
 clean:
-	rm -f *.o *.log *.stdout errors* slurm-* $(TARGETS)
+	rm -f *.o *.log *.stdout errors* slurm-* $(EXE)
