@@ -338,12 +338,16 @@ int main(int argc, char **argv)
     double **adjust = allocate_2d(world,world);
     bytes_allocated += world * world * sizeof(double);
     bytes_allocated += world * world * sizeof(int);
-    
+
+    // Has to be diagonally dominant, 
+    // otherwise its numerically unstable.
+    // Use this for now, will fix later
     for(i=0;i<n;i++){
         a[i] = i +1.5;
         b[i] = 0.3;
     }
 
+    // This should work ???
     // for(ii=0;ii<n;ii++) {
     //     for(kk=0;kk<n;kk++) {
     //         if(ii==kk) {
