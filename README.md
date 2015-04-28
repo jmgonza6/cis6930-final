@@ -1,4 +1,4 @@
-# TRQR (Tri-Diagonal Reduction + QR factorization) V. 0.6,  4.23.2015
+# TDRQR (Tri-Diagonal Reduction + QR factorization) V. 0.6,  4.25.2015
 ___________________________________________________________________________________
 
 TDRQR:
