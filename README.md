@@ -3,7 +3,7 @@ ________________________________________________________________________________
 
 TDRQR:
 ------
-	'TDRQR' is a routine for computing the eigenvalues of a symmmetric matrix.
+    'TDRQR' is a routine for computing the eigenvalues of a symmmetric matrix.
 The routine is based on the idea that diagonalizing a matrix is O(n) if the 
 matrix is in tri-diagonal form.  Therefore, the input matrix is first reduced
 to tri-diagonal form via successive Householder transformations. The resulting 
@@ -15,16 +15,17 @@ ________________________________________________________________________________
 
 Usage:
 ------
-'TDRQR' is run very simply, with mpirun -n N ./tdrqr -n 500
+'TDRQR' is run very simply with, 
+    mpirun -n N ./tdrqr -n 500
 
 A few options are available:
 
--n 		Dimension of matrix
+    -n 		Dimension of matrix
 
--d 		Debug flag, print all MPI Collectives as well as the input and intermediate
-		matrices/vectors
+    -d 		Debug flag, print all MPI Collectives as well as the input and intermediate
+		    matrices/vectors
 
--verify	Runs a test case, 4x4 matrix with known solution
+    -verify	Runs a test case, 4x4 matrix with known solution
 
 NOTE: The number of processors needs to be a power of 2.  
 	  Will be fixed in future releases.
@@ -77,4 +78,6 @@ Contents:
     utils.cpp   --> Implementation of auxillary functions used by main.cpp
     main.cpp    --> Main driver, handles MPI send/recv. No comments
     			    Calls subroutines from utils.cpp/h
-    main-comments.cpp self explanitory
+    main-comments.cpp              ->  self explanitory
+	eigenvalue-solver-cis6930.tex  ->  latex document of analysis
+	eigenvalue-solver-cis6930.pdf  ->  final copy of analysis manuscript
