@@ -1,0 +1,362 @@
+\documentclass[twocolumn]{article}
+\input{/Users/jmgonza6/Documents/header.tex}
+\usepackage[margin=.9in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{tikz}
+\usepackage{tikz-qtree}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{color}
+\usepackage{xcolor}
+\usepackage{algorithm,algorithmic}
+\DeclareCaptionFont{white}{\color{white}}
+\DeclareCaptionFormat{listing}{\colorbox{gray}{\parbox{\textwidth}{#1#2#3}}}
+\captionsetup[lstlisting]{format=listing,labelfont=white,textfont=white}
+\usepackage{/Users/jmgonza6/Documents/lipsum/lipsum}
+
+\usetikzlibrary{arrows}
+\usetikzlibrary{fit,backgrounds,shapes.multipart,calc,positioning}
+
+\tikzset{
+    sibling distance=1.1cm,
+    level distance=2cm,
+    split/.style={draw, 
+        rectangle split, rectangle split parts=2,draw,inner
+        sep=3pt,rectangle split horizontal,minimum size=4ex,text width=3ex,align=center,rectangle split part align=base},
+    boxed/.style={draw,minimum size=4ex,inner sep=0pt,align=center},
+    edge from parent/.style={draw, 
+        edge from parent path={[->,thick]
+        (\tikzparentnode)  -- ($(\tikzchildnode.north) + 25*(0pt,1pt)$) }}
+}
+
+\setlist[enumerate,1]{start=0}
+\DeclareGraphicsExtensions{.png, .pdf, .jpg, .eps}
+
+\newcommand{\PRLsep}{\noindent\makebox[\linewidth]{\resizebox{0.3333\linewidth}{1pt}{$\bullet$}}\bigskip}
+
+\pagestyle{fancyplain}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0.5pt}
+
+
+\begin{document}
+\title{\textbf{Fast Diagonalzation of Hermitian Matrices for Quantum Mechanical Simulations}}
+\author{
+            Joseph Gonzalez \\
+            \textbf{CS267: Final Project} 
+            }
+            
+\twocolumn[
+\begin{@twocolumnfalse}
+\maketitle
+\begin{abstract}
+An efficient and scalable algorithm for obtaining the full eigenvalue spectrum of large Hermitian matrices is presented.  This computation is the basis for solving problems in density functional theory simulations (DFT) and is traditionally the bottle neck both in time and space consumption for the convergence to the ground state, with typical matrix dimensions of 10x10 to 1000 x 1000.   Typically, an iterative algorithm is implemented, however this provides only the lowest few eigenvalues, while the routine presented here provides the full spectrum.  The solution presented is based on reducing the input matrix to tri-diagonal form by the method of successive Householder transformations.  This tri-diagonal matrix is then diagonalized to obtain all of the eigenvalues using a parallel QR factorization scheme.  Some scaling tests are also presented and analyzed with respect to the performance of the code.
+\newline
+\section*{\small{Program summary:}}
+
+\textit{Program title:} TRQR\\
+\textit{Program summary:} \url{https://github.com/jmgonza6/cis6930-final}\\
+\textit{Program source:} git clone \url{https://github.com/jmgonza6/cis6930-final.git}\\
+\textit{Program Licensing:} GPL V 2.0\\
+\textit{Number of lines in distribution, source, headers, etc.:} 1,097\\
+\textit{Number of bytes in distribution:} 1MB\\
+\textit{Distribution format:} \textit{.tar.gz}\\
+\textit{Programming Language:} C++ 99\\
+\textit{Programming model:} Distributed memory via message passing, MPI 3.0\\
+\textit{Compiler support:} Intel MPI 4.1, MVAPICH2-1.9a2\\
+\textit{Operating System:} Mac OS 10.9.x, Linux RHEL\\
+\textit{Nature of problem:} Determination of eigenvalues for quantum mechanics optimization\\
+\textit{Solution method:} Reduce a Hermitian matrix to tridiagonal form via Householder reductions, with the transformations being done in parallel.  The resulting matrix is diagonalized in parallel, finally the eigenvalues are normalized and returned.\\
+\textit{Libraries:} Intel MKL, C++ STL, MPI-3.0
+
+%First, we make use of the Hermitian properties of the Hamiltonian, and convert to a tri-diagonal matrix by a series of Householder transformations.  To reduce space consumption, we store only the diagonal elements of the resulting matrix in vector containers.  Once transformed, we conduct an iterative Lanczos recursion scheme to obtain the eigenvectors and eigenvalues of the original Hamiltonian. This operation is very common in density functional theory simulations (DFT) and is traditionally the bottle neck both in time and space consumption for the convergence to the ground state 
+
+ 
+\end{abstract}
+\PRLsep
+\end{@twocolumnfalse}
+]
+
+\section{Introduction}
+\cfoot{\thepage}
+\rfoot{}
+\rhead{}
+\lhead{J. Gonzalez}
+
+\indent \indent The problem of accurately predicting the ground state configuration of an atomic system has been an interesting problem for theoretical physicists for roughly the past century, with more and more attention in recent years due to faster computer hardware.  In order to determine this low energy configuration, theoretical physicists use a framework known as Density Functional theory (DFT), which defines the energy of a system as a functional of the the electron density, $\rho$($\bm{R}$).  To obtain this energy, the central problem is to solve the eigenvalue problem known as the Kohn-Sham\cite{KH,KS},
+\begin{equation}\label{eq:KS}
+\mathcal{H}\Psi_{i}(\bm{r}_{i}) = \left[-\nabla^{2}/2 + v_{eff}(\bm{R}) \right]\Psi_{i}(\bm{r}_{i}) = E_{i}\Psi_{i}(\bm{r}_{i})
+\end{equation}
+Here, $\mathcal{H}$, is the Hamiltonian operator which contains the kinetic energy of the system and the effective potential felt by the $i$-th electron.  The Hamiltonian has at least 4$N$$^{2}$$_{electrons}$ entries. The  effective potential is determined by integrating $\rho$($\bm{r}$), defined as,
+\begin{equation}\label{eq:rho}
+\rho(\bm{R}) = N \int d^{3}r_{2}\cdots d^{3}r_{N}|\Psi(\bm{r}_{1},\bm{r}_{2},\cdots,\bm{r}_{N})|^{2}
+\end{equation}
+
+Clearly, this problem can only be solved iteratively, since the effective potential defines the wave functions, $\Psi$, which in turn defines the charge density, $\rho$($\bm{R}$).  To achieve this, an initial guess of the wave functions is produced, iterating for a number of electronic steps until the current and previous charge densities converged to some tolerance.  In order to determine the wave functions for each successive step, the energy of the system is found by diagonalizing the Hamiltonian of the system at each electronic step.  For a typical calculation, the Hamiltonian is on the order of 500x500, and depending on the convergence criteria, 15 electronic steps are needed to calculate the energy of a given configuration.  To find the minimal energy configuration, a typical calculation will require approximately 30 ionic steps, each of which containing 15 electronic steps.
+
+Depending on the type of system being studied, one may only require the first $k$ eigenvalues, in which case the standard method used in popular DFT codes is the iterative blocked Davidson algorithm\cite{davidson,lowestvals}.  However, if one requires a more precise and fine grained calculation, the full eigenspectrum is required and thus this iterative scheme is not applicable.  In this work, we present an algorithm for obtaining the full eigenspectrum of a large Hermitian matrix.
+
+
+
+\section{Theory and Algorithm}\label{sec:algo}
+
+\indent \indent In this section, the mathematical framework as well as the algorithmic details of the scheme to obtain the eiegnevalues of a symmetric matrix are presented.  The basis for this method begins with a reduction of the input matrix, e.g. the Hamiltonian of a system of particles, to upper triangular form, i.e. Upper Hessenberg, by successive Householder\cite{HOUSEHOLDER} transforms.  In the case of symmetric Hermitian matrix, the resulting Hessenberg is symmetric and therefore it is tri-diagonal.  The Householder transform is unitary with the following property, \bm{$\Omega$} \bm{$\Omega$$^{T}$} = \bm{$I$}, and is defined as,
+\begin{equation}\label{eq:house}
+\bm{\Omega} = \bm{I} - 2\bm{v}\otimes \bm{v}^{T}.
+\end{equation}
+
+Given a matrix, \bm{$\mathcal{H}$} $\in$  $\mathbb{R}$$^{n \text{x} n}$ such that \bm{$\mathcal{H}$} = \bm{$\mathcal{H}$}$^{\dagger}$, the method of Householder deflation is then given by the following,
+\begin{equation}\label{eq:tridiag}
+\bm{\mathcal{H}} \rightarrow \bm{T} = \prod_{k=1}^{n-2} \bm{\Omega}_{k}\bm{\mathcal{H}}_{k-1}\bm{\Omega}_{k}
+\end{equation}
+
+\[
+\bm{T} = \left(
+\begin{array}{ccccc}
+a_{1}  &  b_{1}  &  0  &  \cdots  & 0\\
+b_{1}  &  a_{2}  &  b_{2}  &   & \vdots  \\
+0  &  \ddots  &  \ddots  &  \ddots  & 0\\
+\vdots  &    &  b_{n-2}  &  a_{n-1}  & b_{n-1}\\
+0  &  \cdots  &  0  &  b_{n-1}  & a_{n}\\
+\end{array}
+\right).
+\]
+
+The next portion of the algorithm proceeds in a divide and conquer fashion, by splitting \bm{$T$} into two sub-matrices, each of which is split again, iteratively until the entire matrix has been divided evenly amongst the requested processors. For example on two processes, 
+\[
+\bm{T}  = \left(
+\begin{array}{cc}
+\bm{T_{1}}  &  0\\
+0  &  \bm{T_{2}} \\
+\end{array}
+\right).
+\]
+Now, \bm{$T$}  can be diagonalized using an appropriate orthogonal matrix \bm{$Q$},
+\begin{equation}\label{eq:Qdiag}
+\bm{T_{1}}  = \bm{Q_{1}}\bm{D_{1}}\bm{Q_{1}} ^{T} \,\,\, \text{and} \,\,\, \bm{T_{2}}  = \bm{Q_{2}}\bm{D_{2}}\bm{Q_{2}} ^{T}.
+\end{equation}
+ We then proceed to obtain the eigenvectors of \bm{$T$} in the usual manner by solving the roots of the secular equation,
+ \begin{equation}\label{eq:secular}
+\bm{y}_{i} = (\bm{D} - \lambda_{i}\bm{I})^{-1}\bm{\zeta}.
+\end{equation}
+In the above \bm{$\zeta$} is defined as follows,
+\[
+\bm{\zeta} = \left(
+\begin{array}{cc}
+\bm{Q}_{1}  &  0\\
+0  &  \bm{Q}_{2}\\
+\end{array}
+\right)^{T} \textbf{z},
+\]
+\[
+\textbf{z} = \left(
+\begin{array}{cccccccc}
+0  & \cdots & 0 & 1 & 1 & 0 & \cdots & 0\\
+\end{array}
+\right)^{T}
+\]
+Finally, the eigenvectors of the original matrix \bm{$\mathcal{H}$} can be obtained by,
+ \begin{equation}\label{eq:evecs}
+\textbf{v}_{i}= \left(
+\begin{array}{cc}
+\bm{Q}_{1}  &  0\\
+0  &  \bm{Q}_{2}\\
+\end{array}
+\right) \bm{y}_{i}.
+\end{equation}
+
+This is the case for when we have only 2 processes, however when more processes are requested, the matrices $\textbf{T}$$_{1}$ and  $\textbf{T}$$_{2}$ will be divided into halves further, see Fig. (\ref{fig:partitioning}).
+
+Given this set of procedures, we can estimate the computational complexity to be $\mathcal{O}$($C$$n$$^{3}$), with the majority of the time being spent during the reduction to tri-diagonal form.  The complexity is broken down as follows; the construction of \bm{$\Omega$}, is $\mathcal{O}$($n$), the Householder reduction to tridiagonal form is the most expensive\cite{Jdemmel}, with $\mathcal{O}$($\frac{4}{3}$$n$$^{3}$ + $n$$^{2}$) operations, and finally, the QR factorization of a tridiagonal matrix\cite{Ortega} incurs only $\mathcal{O}$($n$) operations.
+
+As can be seen from Eq. (\ref{eq:tridiag}), the tri-diagonal reduction step requires 2($n$-2) matrix-multiplication operations, which could be quite prohibitive for matrices larger than 100 x 100.  In an earlier version of the code, we implemented calls to the subroutine \textit{pdgemm}$\_$(), part of the scaLAPACK library\cite{scaLAPACK}.  However this led to a scaling problem with matrices larger than 1000 x 1000, as well as poor load balancing and disproportionate calls to MPI::COMM.Recv versus MPI::COMM.Send().  Therefore, we adopted a new scheme which includes only calls to the Intel MKL BLAS\cite{BLAS}  \textit{dgemm}$\_$().  It should be noted that although this implementation is slower than the results when using the scaLAPACK library, it is more robust with no limit on the size of input matrices as well as a more even load balance, see Fig. (\ref{fig:mpipie}).  Also included in the distribution is a vectorized and blocked matrix-multiplication routine, for the case when the user does not have access to the BLAS library.
+
+For the first multiplication step in Eq. (\ref{eq:tridiag}), we let the root process send the rows of the Householder matrix, \bm{$\Omega$}, and broadcast the input matrix, \bm{$\mathcal{H}$}, to all processes in the world, after which each process does makes their own call to \textit{dgemm}$\_$().  For the second multiplication step, the root process behaves in the same way, except now, we overwrite the data in the input matrix to save space.  
+
+The next step in the routine is to store and distribute the newly formed tridiagonal matrix, $\bm{T}$, of Eq. (\ref{eq:tridiag}) to all processes in the world.  Given the sparse nature of this matrix, we store the main diagonal and off diagonal components in 1D vectors, allowing space conservation as well as easier indexing for building the $\bm{Q}$ matrices. 
+
+%input matrix, \bm{\mathcal{H}},  to all of the worker processes, keeping the upper-left portion for itself.  Then the root process makes a broadcast of the Householder matrix  the scaLAPACK library, 
+%
+%An example of an $n$ = 500 matrix distributed onto 8 processes, is shown in Fig. (\ref{fig:partitioning}).  Once each process receives its sub-matrix of $\textbf{T}$, the QR factorization scheme is applied locally.  Finally, each process solves the secular equation and normalizes the eigenvectors locally and broadcasts the results to the master process.
+%\newline
+%\newline
+The details of the algorithm described above are summarized shown below,
+\begin{algorithm}[H]
+\begin{algorithmic}[1]
+\FOR{$i=0;$ $i$ $<$ $N-2;$} 
+\STATE $\text{Construct}$  \bm{$\Omega$} $\text{on all procs}$
+\STATE \bm{$T$} $=$ \bm{$\Omega$} * \bm{$\hat{H}$}
+\STATE \bm{$T$} $=$ \bm{$T$} * \bm{$\Omega$}
+\ENDFOR
+\STATE $\text{Broadcast}$ \bm{$T$} $\text{onto j procs}$ 
+\FOR{$j=0;$ $j$ $<$ $nprocs;$}
+\STATE $\text{Diagonalize}$  \bm{$T$}$_{j}$
+\STATE $\text{Send}$  \bm{$D$}$_{j}$ $\text{to root}$
+\ENDFOR
+\STATE $\text{Solve secular equation, bi-section method}$
+\end{algorithmic}
+\caption{\textit{TRQR} pseudocode to obtain the eigenvalues of a symmetric matrix.}
+\label{alg:seq}
+\end{algorithm}
+
+\section{Results}
+\cfoot{\thepage}
+\rfoot{}
+\rhead{}
+\lhead{J. Gonzalez}
+In this section, we present the results of the \textit{TRQR} implementation described above.  Shown in Fig. (\ref{fig:weak}), are the weak scaling tests on the presented algorithm.  For the weak scaling test, the system size is doubled, while simultaneous doubling the number of resources.  For this test specifically, we varied the matrix dimensions between $n$ = 75, to $n$ = 2400.  From this plot, we can see that we achieve almost $n$$^{2}$ performance, which is far from the ideal case of a constant time to solution.  
+\begin{figure}[ht]
+\includegraphics[scale=0.27]{figures/final_figures/weak-scaling.pdf}
+\caption{Results of weak scaling test on \textit{trdqr}.  Matrices range from $n$ = 75, to $n$ = 2400.}
+\label{fig:weak}
+\end{figure}
+
+Another set of tests conducted were strong scaling.  In a strong scaling test, the system size is fixed, while the number of resources is increased.  From Fig. (\ref{fig:strong}),  we can see quite good scaling results when $n$ = 500 up to 16 processes.  However after 16 processes, the overhead to initiate the MPI tasks becomes less negligible.  Also when requesting this many of processes, each process only owns a matrix of approximately 20 which is too small to notice the improvements of the BLAS level 3 subroutine calls.  
+\vspace{-0.2cm}
+\begin{figure}[ht]
+\includegraphics[scale=0.27]{figures/final_figures/strong-scaling-500.pdf}
+\caption{Results of strong scaling test on \textit{trdqr}. Dimension of the test matrix is 500.}
+\label{fig:strong}
+\end{figure}
+
+Another interesting metric which can be obtained from the strong scaling results is the speed up provided by adding more resources, shown in Fig. (\ref{fig:speedup}).  Ideally, this data should be linear, however it can clearly be seen that the data showcases an approximately $\log$($n$) trend, providing very little speed up after 16 processes.  Worse yet, we can see that at 64 MPI tasks, the speed up decreases, again this is due to the overhead of the MPI paradigm and the inefficient use of BLAS level 3 subroutine calls.
+\begin{figure}[ht]
+\includegraphics[scale=0.27]{figures/final_figures/speedup-500.pdf}
+\caption{Results of the speed up provided by increasing resources. Dimension of the test matrix is 500.}
+\label{fig:speedup}
+\end{figure}
+
+Aside from time to solution tests, we can further analyze the efficiency of this algorithm by using performance monitors, specifically the Integrated Performance Monitor (IPM)\cite{IPM}, was used.  IPM is a very powerful tool which allows very detailed information on the parallel efficiency of a code employing the MPI library.  The IPM tool is available on Stampede as a module, and does not require any special build procedures other than including the debug option during compilation.  Shown in Fig. (\ref{fig:mpipie}) is a pie chart detailing the percent usage of the most prominent MPI collectives used in the program.  As mentioned in the $\S$ \ref{sec:algo}, in the first implementation using the scaLAPACK library, there was a disproportionate amount of MPI::COMM.Recv calls as compared to Send calls, approximately 70$\%$ and 16$\%$, respectively.  Now, using the new implementation, the program achieves much better load balancing and an approximately equal proportion of Send/Recv calls, providing better efficiency even though the time to solution is slower.
+\vspace{-0.4cm}
+\begin{center}
+\begin{figure}[ht]
+\includegraphics[scale=0.35]{figures/final_figures/mpi_pie_edit.pdf}
+\caption{Pie chart representing the most frequently called MPI commands during runtime, as measured by IPM.}
+\label{fig:mpipie}
+\end{figure}
+\end{center}
+
+
+Another nice feature provided by the IPM tool, is an analysis of the MPI topography by time, received data size, and sent data size.  Shown in Fig. (\ref{fig:mpitopo}), is one such plot showing the communication pattern and timing for each process, darker colors represent more time being spent.  From this plot, we can see that the communication pattern itself as we would hope, however, the load balance of computation time is less than ideal.
+\vspace{-.1cm}
+\begin{figure}[ht]
+\includegraphics[scale=0.4]{figures/final_figures/mpi_topo_time.png}
+\caption{Communication pattern amongst processes and the amount of time for each cpu.}
+\label{fig:mpitopo}
+\end{figure}
+
+
+\section{Conclusions}
+We have presented an algorithm for obtaining the full eigenspectrum of a large Hermitian matrix with applications to quantum mechanical optimization problems.  The algorithm is based on the fact that the diagonalization of a trid-diagonal matrix is $\mathcal{O}$($n$), and therefore the input matrix is reduced to this form by successive Householder transformations.  The time to solution results and scaling are acceptable, however since the number of times the eigenvalues need to be obtained is on the order of 500 for a typical simulation, this method is still prohibitive.  In fact, most systems can be simulated with high accuracy and close agreement to experiment by using the iterative method and obtaining only a few eigenvalues at each step.  Never the less, this algorithm does showcase a robust method for obtaining the full eigenspectrum, which is advantageous for a certain subset of problems encountered in quantum mechanics.
+%\begin{figure*}
+%\center
+%\begin{tikzpicture}
+%\Tree [.\node[split] (M1) {500\nodepart{two}500}; 
+%                [.\node[split] (M2) {250\nodepart{two}250}; 
+%                    [.\node[split] (M3)  {125\nodepart{two}125};
+%                    	[.\node[boxed] (M8)  {125};]
+%				[.\node[boxed] (M9)  {125};]
+%                    ]
+%                    [.\node[split] (M4)  {125\nodepart{two}125};
+%                    	[.\node[boxed] (M10)  {125};]
+%				[.\node[boxed] (M11)  {125};]
+%                    ]
+%                ]  
+%                [.\node[split]  (M5)  {250\nodepart{two}250};
+%                    [.\node[split] (M6)  {125\nodepart{two}125};
+%                    	[.\node[boxed] (M12)  {125};]
+%				[.\node[boxed] (M13)  {125};]
+%                    ]
+%                    [.\node[split] (M7) {125\nodepart{two}125};
+%                    	[.\node[boxed] (M14)  {125};]
+%				[.\node[boxed] (M15)  {125};]
+%                    ]
+%                ]
+%            ]
+%\begin{pgfonlayer}{background}
+%\foreach \x in {1}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{0}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+% \foreach \x in {2}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{1}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%     \foreach \x in {3}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{1}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%     \foreach \x in {4}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{3}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%     \foreach \x in {5}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{2}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%     \foreach \x in {6}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{2}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%     \foreach \x in {7}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{4}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%    
+%    \foreach \x in {8}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{0}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%    \foreach \x in {9}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{1}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%    \foreach \x in {10}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{2}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%    \foreach \x in {11}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{3}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%     \foreach \x in {12}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{4}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%    \foreach \x in {13}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{5}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%    \foreach \x in {14}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{6}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%    \foreach \x in {15}{
+%    \node (A\x)  [above =4pt of M\x] {P$_{7}$};
+%    \node[draw,red,] [fit=(M\x) (A\x) ] {};}
+%    
+%\end{pgfonlayer}
+%\end{tikzpicture}
+%\caption{Schematic of dividing a 500 x 500 matrix when requesting 8 processes.  The numbers in the boxes represent the size of the dimension of the matrix on which the diagonalization is performed.}
+%\label{fig:partitioning}
+%\end{figure*}
+
+%\clearpage
+
+\vspace{1cm}
+\hline
+\begin{thebibliography}{9}
+
+\bibitem{KH} P. Hohenber and W. Kohn, \emph{Inhomogeneous Electron Gas}, Phys. Rev. \textbf{136}, B864, (1964).
+
+\bibitem{KS} W. Kohn and L. J. Sham, \emph{Self-Consisten Equations Including Exchange and Correlation Effects}, Phys. Rev. \textbf{140}, A1133, (1965).
+
+\bibitem{davidson} E. R. Davidson, \emph{Matrix Eigenvector Methods in Computational Molecular Physics}, Advanced Study Institute, Series C. Vol. \textbf{113}, (1983).
+
+\bibitem{lowestvals} E. R. Davidson, \emph{The Iterative Calculation of a Few of the Lowest and Corresponding Eigenvectors of Large Real-Symmetric Matrices}, J. Comput. Phys. \textbf{17}, 87-94, (1975).
+
+\bibitem{HOUSEHOLDER} A. S. Householder. \emph{Unitary Triangularization of a Nonsymmetric Matrix}, Journal of the ACM \textbf{5}, 339-342 (1958).
+
+\bibitem{Jdemmel} J. W. Demmel, \emph{Applied Numerical Linear Algebra} (SIAM,1997).
+
+\bibitem{Ortega} J. M. Ortega and H. F. Kaiser, \emph{The LL and QR methods for symmetric tridiagonal matrices}, The Computer Journal \textbf{6}, 99-101 (1963).
+
+\bibitem{scaLAPACK} L. S. Blackford, J. Choi, A. Cleary, E. D'Azevedo, J. Demmel, I. Dhillon, J. Dongarra, S. Hammarling, G. Henry, A. Petitet, K. Stanley, D. Walker and R. C. Whaley. (1997) \url{http://www.netlib.org/scalapack/}.
+
+\bibitem{BLAS} \url{http://www.netlib.org/blas/}.
+
+\bibitem{IPM} \url{http://ipm-hpc.org}
+
+\end{thebibliography}
+
+
+\end{document}
