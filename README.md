@@ -20,8 +20,10 @@ Usage:
 A few options are available:
 
 -n 		Dimension of matrix
+
 -d 		Debug flag, print all MPI Collectives as well as the input and intermediate
 		matrices/vectors
+
 -verify	Runs a test case, 4x4 matrix with known solution
 
 NOTE: The number of processors needs to be a power of 2.  
