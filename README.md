@@ -16,7 +16,8 @@ ________________________________________________________________________________
 Usage:
 ------
 'TDRQR' is run very simply with, 
-    mpirun -n N ./tdrqr -n 500
+    
+	mpirun -n N ./tdrqr -n 500
 
 A few options are available:
 
